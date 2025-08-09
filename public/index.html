@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <title>실시간 위치 공유</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    html, body, #map { height: 100%; margin: 0; }
+    .topbar { position: absolute; z-index: 1000; left: 8px; top: 8px; background: rgba(255,255,255,0.9); padding: 8px 10px; border-radius: 10px; font-size: 14px; box-shadow: 0 2px 8px rgba(0,0,0,.1); }
+    .badge { display:inline-block; padding:2px 6px; border-radius: 999px; background:#efefef; margin-left:6px; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div class="topbar">
+    <strong>실시간 위치 공유</strong>
+    <span class="badge" id="count">0</span>
+  </div>
+
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    // URL에서 토큰 추출 (/r/:token)
+    const token = location.pathname.split('/').pop();
+
+    // 닉네임(옵션): ?nick=홍길동
+    const nickname = new URL(location.href).searchParams.get('nick') || '';
+
+    // 소켓 연결
+    const socket = io('/', { transports: ['websocket'] });
+
+    // 지도 초기화
+    const map = L.map('map');
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap'
+    }).addTo(map);
+
+    // 마커 보관
+    const markers = new Map();
+    let myMarker;
+
+    // 방 참가
+    socket.emit('join', { token, nickname });
+
+    socket.on('error_message', (msg) => {
+      alert(msg);
+    });
+
+    socket.on('room_info', ({ count }) => {
+      document.getElementById('count').textContent = count;
+    });
+
+    // 다른 참가자 위치 업데이트
+    socket.on('peer_loc', (p) => {
+      if (p.id === socket.id) return; // 내 이벤트는 무시
+      let m = markers.get(p.id);
+      if (!m) {
+        m = L.marker([p.lat, p.lng]).addTo(map);
+        markers.set(p.id, m);
+      } else {
+        m.setLatLng([p.lat, p.lng]);
+      }
+      const subtitle = p.nickname ? `@${p.nickname}` : '참가자';
+      m.bindPopup(`${subtitle}<br/>±${Math.round(p.accuracy||0)}m`);
+    });
+
+    // 참가자 퇴장
+    socket.on('peer_left', ({ id }) => {
+      const m = markers.get(id);
+      if (m) {
+        map.removeLayer(m);
+        markers.delete(id);
+      }
+    });
+
+    // 내 위치 추적
+    if ('geolocation' in navigator) {
+      navigator.geolocation.watchPosition(pos => {
+        const { latitude: lat, longitude: lng, accuracy, heading, speed } = pos.coords;
+
+        // 지도 초기 중심/줌 설정
+        if (!myMarker) {
+          map.setView([lat, lng], 16);
+          myMarker = L.marker([lat, lng], { title: '나' }).addTo(map);
+        } else {
+          myMarker.setLatLng([lat, lng]);
+        }
+
+        socket.emit('loc_update', {
+          lat, lng, accuracy, heading, speed, ts: Date.now()
+        });
+      }, err => {
+        alert('위치 권한이 필요합니다: ' + err.message);
+      }, {
+        enableHighAccuracy: true,
+        maximumAge: 2000,
+        timeout: 10000
+      });
+    } else {
+      alert('이 브라우저는 위치 기능을 지원하지 않습니다.');
+    }
+  </script>
+</body>
+</html>
