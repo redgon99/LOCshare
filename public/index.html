@@ -9,10 +9,147 @@
     html, body, #map { height: 100%; margin: 0; }
     .topbar { position: absolute; z-index: 1000; left: 8px; top: 8px; background: rgba(255,255,255,0.9); padding: 8px 10px; border-radius: 10px; font-size: 14px; box-shadow: 0 2px 8px rgba(0,0,0,.1); }
     .badge { display:inline-block; padding:2px 6px; border-radius: 999px; background:#efefef; margin-left:6px; }
+    
+    /* 참가자 목록 오버레이 */
+    .participants-overlay {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      z-index: 1000;
+      background: rgba(255,255,255,0.95);
+      border-radius: 8px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+      border: 1px solid rgba(0,0,0,0.1);
+      min-width: 200px;
+      max-width: 280px;
+      backdrop-filter: blur(10px);
+    }
+    
+    .participants-header {
+      padding: 12px 16px;
+      border-bottom: 1px solid rgba(0,0,0,0.1);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    
+    .participants-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: #333;
+      margin: 0;
+    }
+    
+    .participants-count {
+      background: #007bff;
+      color: white;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 500;
+    }
+    
+    .participants-list {
+      max-height: 300px;
+      overflow-y: auto;
+      padding: 8px;
+    }
+    
+    .participant-item {
+      display: flex;
+      align-items: center;
+      padding: 8px 12px;
+      margin: 2px 0;
+      background: rgba(255,255,255,0.8);
+      border: 1px solid rgba(0,0,0,0.08);
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      font-size: 13px;
+    }
+    
+    .participant-item:hover {
+      background: rgba(0,123,255,0.1);
+      border-color: rgba(0,123,255,0.3);
+      transform: translateX(-2px);
+    }
+    
+    .participant-item.active {
+      background: rgba(0,123,255,0.15);
+      border-color: rgba(0,123,255,0.5);
+    }
+    
+    .participant-avatar {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: bold;
+      font-size: 11px;
+      margin-right: 8px;
+      flex-shrink: 0;
+    }
+    
+    .participant-info {
+      flex: 1;
+      min-width: 0;
+    }
+    
+    .participant-name {
+      font-weight: 500;
+      color: #333;
+      margin: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-size: 12px;
+    }
+    
+    .participant-status {
+      font-size: 10px;
+      color: #28a745;
+      margin: 0;
+    }
+    
+    /* 스크롤바 스타일 */
+    .participants-list::-webkit-scrollbar {
+      width: 4px;
+    }
+    
+    .participants-list::-webkit-scrollbar-track {
+      background: rgba(0,0,0,0.05);
+      border-radius: 2px;
+    }
+    
+    .participants-list::-webkit-scrollbar-thumb {
+      background: rgba(0,0,0,0.2);
+      border-radius: 2px;
+    }
+    
+    .participants-list::-webkit-scrollbar-thumb:hover {
+      background: rgba(0,0,0,0.3);
+    }
+    
+
   </style>
 </head>
 <body>
   <div id="map"></div>
+  
+  <div class="participants-overlay" id="participants-overlay">
+    <div class="participants-header">
+      <h3 class="participants-title">참가자</h3>
+      <span class="participants-count" id="participant-count">0</span>
+    </div>
+    <div class="participants-list" id="participants-list">
+      <!-- 참가자 목록이 여기에 동적으로 추가됩니다 -->
+    </div>
+  </div>
+  
   <div class="topbar">
     <strong>실시간 위치 공유</strong>
     <span class="badge" id="count">0</span>
@@ -41,6 +178,58 @@
     const markers = new Map();
     let myMarker;
 
+    // 참가자 관리
+    const participants = new Map();
+    let myId = null;
+
+    // 참가자 목록 업데이트
+    function updateParticipantsList() {
+      const list = document.getElementById('participants-list');
+      const countElement = document.getElementById('participant-count');
+      
+      list.innerHTML = '';
+      countElement.textContent = participants.size;
+      
+      participants.forEach((participant, id) => {
+        const item = document.createElement('div');
+        item.className = 'participant-item';
+        if (id === myId) {
+          item.classList.add('active');
+        }
+        
+        const avatar = document.createElement('div');
+        avatar.className = 'participant-avatar';
+        avatar.textContent = participant.nickname ? participant.nickname.charAt(0).toUpperCase() : '?';
+        
+        const info = document.createElement('div');
+        info.className = 'participant-info';
+        
+        const name = document.createElement('p');
+        name.className = 'participant-name';
+        name.textContent = participant.nickname || '익명 사용자';
+        
+        const status = document.createElement('p');
+        status.className = 'participant-status';
+        status.textContent = '온라인';
+        
+        info.appendChild(name);
+        info.appendChild(status);
+        item.appendChild(avatar);
+        item.appendChild(info);
+        
+        // 클릭 이벤트: 해당 참가자의 위치로 지도 이동
+        item.addEventListener('click', () => {
+          const marker = markers.get(id);
+          if (marker) {
+            map.setView(marker.getLatLng(), map.getZoom());
+            marker.openPopup();
+          }
+        });
+        
+        list.appendChild(item);
+      });
+    }
+
     // 방 참가
     socket.emit('join', { token, nickname });
 
@@ -52,9 +241,21 @@
       document.getElementById('count').textContent = count;
     });
 
+    // 내 ID 저장
+    socket.on('connect', () => {
+      myId = socket.id;
+      participants.set(myId, { nickname: nickname || '나' });
+      updateParticipantsList();
+    });
+
     // 다른 참가자 위치 업데이트
     socket.on('peer_loc', (p) => {
       if (p.id === socket.id) return; // 내 이벤트는 무시
+      
+      // 참가자 정보 저장
+      participants.set(p.id, { nickname: p.nickname || '익명 사용자' });
+      updateParticipantsList();
+      
       let m = markers.get(p.id);
       if (!m) {
         m = L.marker([p.lat, p.lng]).addTo(map);
@@ -73,6 +274,10 @@
         map.removeLayer(m);
         markers.delete(id);
       }
+      
+      // 참가자 목록에서 제거
+      participants.delete(id);
+      updateParticipantsList();
     });
 
     // 내 위치 추적
